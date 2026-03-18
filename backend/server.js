@@ -1,21 +1,18 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-
 const { HttpsProxyAgent } = require('https-proxy-agent'); 
 
 const app = express();
-
 app.use(cors());
 
-// 1. PROXY SETUP (Using the IP from your screenshot)
-// Note: If this IP dies, grab a new green one from spys.one/free-proxy-list/IL/
-const proxyUrl = 'http://51.4.59.110:1080'; 
+// 1. UPDATE THIS PROXY REGULARLY
+// If it fails, go to spys.one and get a NEW "Green" IP
+const proxyUrl = 'http://129.159.159.78:3128'; // I updated this to a newer one from your list
 const agent = new HttpsProxyAgent(proxyUrl);
 
 let cityCoordinates = {};
 
-// 2. LOAD CITY DATABASE
 async function loadCityData() {
     try {
         console.log("🛰️ Loading global city database...");
@@ -32,41 +29,51 @@ async function loadCityData() {
     }
 }
 
-// 3. ALERT ENDPOINT
 app.get('/api/alerts', async (req, res) => {
     try {
         const response = await axios.get('https://www.oref.org.il/WarningMessages/alert/alerts.json', {
-            httpsAgent: agent, // Tells Oref we are in Israel
+            httpsAgent: agent,
             proxy: false,
+            // 🚨 FIX 1: Oref uses a specific encoding that can break Axios
+            responseType: 'arraybuffer', 
             headers: { 
-                'User-Agent': 'Mozilla/5.0', 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
                 'Referer': 'https://www.oref.org.il/',
-                'X-Requested-With': 'XMLHttpRequest'
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': '*/*'
             },
-            timeout: 5000 
+            timeout: 8000 
         });
 
-        const rawData = response.data;
-        if (!rawData || !rawData.data) return res.json({ active: false, alerts: [] });
+        // 🚨 FIX 2: Convert the "buffer" back to a readable string (Hebrew support)
+        const decoder = new TextDecoder('utf-16');
+        const decodedText = decoder.decode(response.data).trim();
+
+        // 🚨 FIX 3: If Oref returns nothing, it means there are NO active sirens
+        if (!decodedText || decodedText.length < 5) {
+            return res.json({ active: false, alerts: [], message: "No active alerts" });
+        }
+
+        const rawData = JSON.parse(decodedText);
 
         const enrichedAlerts = rawData.data.map(location => ({
             location: location.trim(),
             coords: cityCoordinates[location.trim()] || null,
-            origin: "Verifying via OSINT...", 
+            origin: "Verifying...", 
             type: rawData.title 
         }));
 
         res.json({ active: true, alerts: enrichedAlerts });
+
     } catch (e) {
-        console.error("API Error:", e.message);
-        res.status(500).json({ error: 'API/Proxy connection failed' });
+        console.error("Fetch Error:", e.message);
+        // If it's a proxy error, let the frontend know
+        res.status(200).json({ active: false, alerts: [], error: "Waiting for proxy..." });
     }
 });
 
-// 4. RENDER PORT BINDING
 const PORT = process.env.PORT || 3001;
 loadCityData().then(() => {
-    // We bind to 0.0.0.0 so Render can route external traffic to your app
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`🚀 Smart Backend live on port ${PORT}`);
     });
