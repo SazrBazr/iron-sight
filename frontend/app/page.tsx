@@ -14,33 +14,29 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'live' | 'history'>('live');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+  // Hardcoded for local development to ensure it hits your Node server
+  const backendUrl = 'http://localhost:3001';
 
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
         const res = await fetch(`${backendUrl}/api/alerts`);
         const data = await res.json();
+        // data.active comes from your server.js logic
         setAlerts(data.active ? data.alerts : []);
-      } catch (e) { console.error("Alert Fetch Failed"); }
+      } catch (e) { 
+        // Silently fail or log for debugging
+        console.error("Local Backend Offline - Check Port 3001"); 
+      }
     };
 
-    const fetchHistory = async () => {
-      try {
-        const res = await fetch(`${backendUrl}/api/history`);
-        const data = await res.json();
-        setHistory(Array.isArray(data) ? data : []);
-      } catch (e) { console.error("History Fetch Failed"); }
-    };
-
+    // Initial load
     fetchAlerts();
-    fetchHistory();
-    const alertInterval = setInterval(fetchAlerts, 2000);
-    const historyInterval = setInterval(fetchHistory, 30000);
+    // Intervals: 1s for Live (snappy), 10s for History (background)
+    const alertInterval = setInterval(fetchAlerts, 1000);
 
     return () => {
       clearInterval(alertInterval);
-      clearInterval(historyInterval);
     };
   }, [backendUrl]);
 
@@ -79,16 +75,16 @@ export default function Home() {
       </nav>
 
       <div className="flex flex-1 overflow-hidden relative">
-        {/* 1. MAP CONTAINER (Always 100% width) */}
+        {/* Map Container */}
         <div className="absolute inset-0 z-0">
           <MapComponent 
             alerts={activeTab === 'live' ? alerts : []} 
-            history={activeTab === 'history' ? history : []} 
+            history={history} // Passing history all the time for the "heatmap" look
             isSidebarOpen={isSidebarOpen} 
           />
         </div>
 
-        {/* 2. OVERLAY SIDEBAR (Floats on top) */}
+        {/* Overlay Sidebar */}
         <aside 
           className={`
             absolute left-0 top-0 z-10 h-full bg-zinc-950/90 backdrop-blur-md border-r border-zinc-800 transition-all duration-300 ease-in-out overflow-y-auto
@@ -104,7 +100,7 @@ export default function Home() {
             <div className="space-y-3">
               {activeTab === 'live' ? (
                 alerts.length > 0 ? alerts.map((alert: any, i: number) => (
-                  <div key={i} className="bg-red-950/20 border border-red-500/30 p-4 rounded-xl border-l-4 border-l-red-500">
+                  <div key={i} className="bg-red-950/20 border border-red-500/30 p-4 rounded-xl border-l-4 border-l-red-500 animate-in fade-in slide-in-from-left-2">
                     <div className="text-red-500 font-bold text-lg leading-tight">{alert.location}</div>
                     <div className="text-[10px] text-red-400 font-bold uppercase mt-1">{alert.type}</div>
                   </div>
@@ -112,7 +108,7 @@ export default function Home() {
                   <div className="text-zinc-800 text-xs italic text-center py-20 uppercase tracking-widest animate-pulse">Scanning Skies...</div>
                 )
               ) : (
-                history.slice(0, 50).map((item: any, i: number) => (
+                history.map((item: any, i: number) => (
                   <div key={i} className="bg-zinc-900/40 border border-zinc-800 p-3 rounded-lg flex justify-between items-start group">
                     <div>
                       <div className="text-zinc-200 font-bold text-sm">{item.location}</div>
@@ -126,7 +122,6 @@ export default function Home() {
           </div>
         </aside>
 
-        {/* 3. Floating Re-open Button */}
         {!isSidebarOpen && (
           <button 
             onClick={() => setIsSidebarOpen(true)}
@@ -136,7 +131,6 @@ export default function Home() {
           </button>
         )}
 
-        {/* 4. Status Indicator (Lower Right) */}
         <div className="absolute bottom-6 right-6 z-20 bg-zinc-950/80 backdrop-blur-md border border-zinc-800 p-3 rounded-lg shadow-2xl">
           <div className="flex items-center gap-3">
             <div className={`w-2 h-2 rounded-full ${alerts.length > 0 ? 'bg-red-500 animate-ping' : 'bg-green-500'}`} />
