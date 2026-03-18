@@ -1,37 +1,24 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent'); 
-
 const app = express();
+
 app.use(cors());
 
-// 1. PROXY SETUP
-// Using a fresh HIA (High Anonymity) Israeli IP from your list.
-// 🚨 If the logs say "Fetch Failed", replace this IP immediately.
-const proxyUrl = 'http://81.218.96.226:8080'; 
-const agent = new HttpsProxyAgent(proxyUrl);
+// NO PROXY NEEDED! The server is already in Israel.
 
-// Stealth Headers to mimic a real Israeli user browsing Chrome on Windows
 const stealthHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': 'https://www.oref.org.il/he/alerts-history',
     'X-Requested-With': 'XMLHttpRequest',
-    'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache'
+    'Cache-Control': 'no-cache'
 };
 
 let cityCoordinates = {};
 
-// 2. LOAD GLOBAL CITY DATABASE (Runs once on startup)
+// Load City Data
 async function loadCityData() {
     try {
         console.log("🛰️ Loading global city database...");
@@ -44,69 +31,53 @@ async function loadCityData() {
         });
         console.log(`✅ Loaded ${Object.keys(cityCoordinates).length} cities.`);
     } catch (e) {
-        console.error("❌ Failed to load gov city data. Map pins might fail.");
+        console.error("❌ Failed to load gov city data.");
     }
 }
 
-// 3. LIVE ALERTS ENDPOINT
+// Live Alerts
 app.get('/api/alerts', async (req, res) => {
     try {
-        // Cache-buster: adds a timestamp so the proxy doesn't serve old data
-        const url = `https://www.oref.org.il/WarningMessages/alert/alerts.json?v=${Date.now()}`;
-
-        const response = await axios.get(url, {
-            httpsAgent: agent,
-            proxy: false,
-            responseType: 'arraybuffer', // Fix for Hebrew encoding
+        const response = await axios.get(`https://www.oref.org.il/WarningMessages/alert/alerts.json?v=${Date.now()}`, {
+            responseType: 'arraybuffer',
             headers: stealthHeaders,
-            timeout: 10000 
+            timeout: 5000 
         });
 
         const decoder = new TextDecoder('utf-16');
         const decodedText = decoder.decode(response.data).trim();
 
-        // If response is empty, there are no sirens
         if (!decodedText || decodedText.length < 5 || decodedText === "null") {
             return res.json({ active: false, alerts: [] });
         }
 
         const rawData = JSON.parse(decodedText);
-        console.log(`🚨 ALERT DETECTED: ${rawData.data.length} locations`);
-
         const enrichedAlerts = rawData.data.map(location => ({
             location: location.trim(),
             coords: cityCoordinates[location.trim()] || null,
-            origin: "Verifying...", 
+            origin: "Live Radar", 
             type: rawData.title 
         }));
 
         res.json({ active: true, alerts: enrichedAlerts });
     } catch (e) {
-        console.error("❌ Live Fetch Failed:", e.message);
-        res.status(200).json({ active: false, alerts: [], error: "Proxy connection issue" });
+        res.json({ active: false, alerts: [] });
     }
 });
 
-// 4. 24H HISTORY ENDPOINT
+// 24h History
 app.get('/api/history', async (req, res) => {
     try {
-        console.log("📜 Fetching 24h History via Proxy...");
         const response = await axios.get(`https://www.oref.org.il/WarningMessages/History/AlertsHistory.json?v=${Date.now()}`, {
-            httpsAgent: agent,
-            proxy: false,
             responseType: 'arraybuffer',
             headers: stealthHeaders,
-            timeout: 12000
+            timeout: 8000
         });
 
         const decoder = new TextDecoder('utf-16');
         const decodedText = decoder.decode(response.data).trim();
-
-        if (!decodedText || decodedText === "null") {
-            return res.json([]);
-        }
-
         const historyData = JSON.parse(decodedText);
+
         const enrichedHistory = historyData.map(item => ({
             location: item.data.trim(),
             time: item.alertDate,
@@ -116,15 +87,13 @@ app.get('/api/history', async (req, res) => {
 
         res.json(enrichedHistory);
     } catch (e) {
-        console.error("❌ History Fetch Failed:", e.message);
-        res.status(500).json({ error: 'History currently unavailable' });
+        res.status(500).json({ error: 'History offline' });
     }
 });
 
-// 5. SERVER STARTUP
 const PORT = process.env.PORT || 3001;
 loadCityData().then(() => {
     app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 Iron Sight Backend live on port ${PORT}`);
+        console.log(`🚀 Israeli Backend live on port ${PORT}`);
     });
 });
