@@ -72,6 +72,41 @@ app.get('/api/alerts', async (req, res) => {
     }
 });
 
+app.get('/api/history', async (req, res) => {
+    try {
+        console.log("📜 Fetching 24h History via Proxy...");
+        const response = await axios.get('https://www.oref.org.il/WarningMessages/History/AlertsHistory.json', {
+            httpsAgent: agent, // 🚨 CRITICAL: Use the Israeli proxy here too!
+            proxy: false,
+            responseType: 'arraybuffer',
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.oref.org.il/he/alerts-history',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': '*/*'
+            },
+            timeout: 10000
+        });
+
+        const decoder = new TextDecoder('utf-16');
+        const decodedText = decoder.decode(response.data);
+        const historyData = JSON.parse(decodedText);
+
+        // Map and clean the data
+        const enrichedHistory = historyData.map(item => ({
+            location: item.data.trim(),
+            time: item.alertDate,
+            type: item.title,
+            coords: cityCoordinates[item.data.trim()] || null
+        }));
+
+        res.json(enrichedHistory);
+    } catch (e) {
+        console.error("❌ History Fetch Failed:", e.message);
+        res.status(500).json({ error: 'History currently unavailable' });
+    }
+});
+
 const PORT = process.env.PORT || 3001;
 loadCityData().then(() => {
     app.listen(PORT, '0.0.0.0', () => {
